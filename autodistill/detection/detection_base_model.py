@@ -83,6 +83,7 @@ class DetectionBaseModel(BaseModel):
 
         image_paths = glob.glob(input_folder + "/*" + extension)
         detections_map = {}
+        images_map = {}
 
         # if output_folder/autodistill.json exists
         if os.path.exists(output_folder + "/data.yaml"):
