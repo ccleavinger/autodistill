@@ -1,6 +1,8 @@
 import enum
 import glob
+import json
 import os
+import time
 from abc import abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
@@ -82,10 +84,30 @@ class DetectionBaseModel(BaseModel):
         image_paths = glob.glob(input_folder + "/*" + extension)
         detections_map = {}
 
-        if sahi:
-            slicer = sv.InferenceSlicer(callback=self.predict)
+        # if output_folder/autodistill.json exists
+        if os.path.exists(output_folder + "/data.yaml"):
+            dataset = sv.DetectionDataset.from_yolo(
+                output_folder + "/images",
+                output_folder + "/annotations",
+                output_folder + "/data.yaml",
+            )
 
-        progress_bar = tqdm(image_paths, desc="Labeling images")
+            # DetectionsDataset iterator returns
+            # image_name, image, self.annotations.get(image_name, None)
+            # ref: https://supervision.roboflow.com/datasets/#supervision.dataset.core.DetectionDataset
+            for item in dataset:
+                image_name = item[0]
+                image = item[1]
+                detections = item[2]
+
+                image_base_name = os.path.basename(image_name)
+
+                images_map[image_base_name] = image
+                detections_map[image_base_name] = detections
+
+        files = glob.glob(input_folder + "/*" + extension)
+        progress_bar = tqdm(files, desc="Labeling images")
+
         for f_path in progress_bar:
             progress_bar.set_description(desc=f"Labeling {f_path}", refresh=True)
 
@@ -100,7 +122,19 @@ class DetectionBaseModel(BaseModel):
             if nms_settings == NmsSetting.CLASS_AGNOSTIC:
                 detections = detections.with_nms(class_agnostic=True)
 
-            detections_map[f_path] = detections
+            f_path_short = os.path.basename(f_path)
+            images_map[f_path_short] = image.copy()
+
+            annotation_path = os.path.join(
+                output_folder,
+                "annotations/",
+                ".".join(f_path_short.split(".")[:-1]) + ".txt",
+            )
+
+            if not os.path.exists(annotation_path):
+                detections = self.predict(f_path)
+                detections_map[f_path_short] = detections
+
 
         dataset = sv.DetectionDataset(
             self.ontology.classes(), image_paths, detections_map
@@ -129,5 +163,16 @@ class DetectionBaseModel(BaseModel):
 
             workspace.upload_dataset(output_folder, project_name=roboflow_project)
 
+        config["end_time"] = time.time()
+        config["labeled_image_count"] = len(dataset)
+        config["human_in_the_loop"] = human_in_the_loop
+        config["roboflow_project"] = roboflow_project
+        config["roboflow_tags"] = roboflow_tags
+        config["task"] = "detection"
+
+        with open(os.path.join(output_folder, "config.json"), "w+") as f:
+            json.dump(config, f)
+
         print("Labeled dataset created - ready for distillation.")
-        return dataset
+
+        return dataset, output_folder

@@ -158,6 +158,7 @@ def split_data(base_dir, split_ratio=0.8, record_confidence=False):
                 annotations_dir, "confidence-" + file + ".txt", valid_labels_dir
             )
 
+
     # Load the existing YAML file to get the names
     with open(os.path.join(base_dir, "data.yaml"), "r") as file:
         data = yaml.load(file, Loader=yaml.FullLoader)
