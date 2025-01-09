@@ -57,8 +57,9 @@ class DetectionBaseModel(BaseModel):
                 detections = item[2]
 
                 image_base_name = os.path.basename(image_name)
+                images_map[image_base_name] = image.copy()
 
-                images_map[image_base_name] = image
+                annotation_path = os.path.join(output_folder, "annotations", image_base_name + ".txt")
                 detections_map[image_base_name] = detections
 
         files = glob.glob(input_folder + "/*" + extension)
