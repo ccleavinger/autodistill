@@ -1,17 +1,79 @@
 import os
 import random
 import shutil
+from io import BytesIO
+from typing import Any
+from urllib.request import urlretrieve
 
 import cv2
+import numpy as np
+import requests
+import roboflow
 import supervision as sv
 import tqdm
 import yaml
 from PIL import Image
 
 VALID_ANNOTATION_TYPES = ["box", "mask"]
+ACCEPTED_RETURN_FORMATS = ["PIL", "cv2", "numpy"]
 
 
-def split_data(base_dir, split_ratio=0.8):
+def load_image(
+    image: Any,
+    return_format="cv2",
+) -> Any:
+    """
+    Load an image from a file path, URI, PIL image, or numpy array.
+
+    This function is for use by Autodistill modules. You don't need to use it directly.
+
+    Args:
+        image: The image to load
+        return_format: The format to return the image in
+
+    Returns:
+        The image in the specified format
+    """
+    if return_format not in ACCEPTED_RETURN_FORMATS:
+        raise ValueError(f"return_format must be one of {ACCEPTED_RETURN_FORMATS}")
+
+    if isinstance(image, Image.Image) and return_format == "PIL":
+        return image
+    elif isinstance(image, Image.Image) and return_format == "cv2":
+        # channels need to be reversed for cv2
+        return cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+    elif isinstance(image, Image.Image) and return_format == "numpy":
+        return np.array(image)
+
+    if isinstance(image, np.ndarray) and return_format == "PIL":
+        return Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+    elif isinstance(image, np.ndarray) and return_format == "cv2":
+        return image
+    elif isinstance(image, np.ndarray) and return_format == "numpy":
+        return image
+
+    if isinstance(image, str) and image.startswith("http"):
+        if return_format == "PIL":
+            response = requests.get(image)
+            return Image.open(BytesIO(response.content))
+        elif return_format == "cv2" or return_format == "numpy":
+            response = requests.get(image)
+            pil_image = Image.open(BytesIO(response.content))
+            return np.array(pil_image)
+    elif os.path.isfile(image):
+        if return_format == "PIL":
+            return Image.open(image)
+        elif return_format == "cv2":
+            # channels need to be reversed for cv2
+            return cv2.cvtColor(np.array(Image.open(image)), cv2.COLOR_RGB2BGR)
+        elif return_format == "numpy":
+            pil_image = Image.open(image)
+            return np.array(pil_image)
+    else:
+        raise ValueError(f"{image} is not a valid file path or URI")
+
+
+def split_data(base_dir, split_ratio=0.8, record_confidence=False):
     images_dir = os.path.join(base_dir, "images")
     annotations_dir = os.path.join(base_dir, "annotations")
 
@@ -67,16 +129,35 @@ def split_data(base_dir, split_ratio=0.8):
     os.makedirs(valid_labels_dir, exist_ok=True)
 
     # Move the files
-    # We are using shutil.copy() to prevent an error like
-    # shutil.Error: Destination path 'labeled_images/train/images/image.jpg' already exists
-    # when you label the same image multiple times
+    def _check_move_file(source_dir, source_file, dest_dir):
+        if not os.path.exists(os.path.join(source_dir, source_file)):
+            print(
+                f"Did not find {os.path.join(source_dir, source_file)}, not moving anything to {dest_dir}"
+            )
+            return
+        if os.path.exists(os.path.join(dest_dir, source_file)):
+            print(
+                f"Found {os.path.join(dest_dir, source_file)} as already present, not moving anything to {dest_dir}"
+            )
+            return
+        shutil.move(os.path.join(source_dir, source_file), dest_dir)
+
     for file in train_files:
-        shutil.copy(os.path.join(images_dir, file + ".jpg"), train_images_dir)
-        shutil.copy(os.path.join(annotations_dir, file + ".txt"), train_labels_dir)
+        _check_move_file(images_dir, file + ".jpg", train_images_dir)
+        _check_move_file(annotations_dir, file + ".txt", train_labels_dir)
+        if record_confidence:
+            _check_move_file(
+                annotations_dir, "confidence-" + file + ".txt", train_labels_dir
+            )
 
     for file in valid_files:
-        shutil.copy(os.path.join(images_dir, file + ".jpg"), valid_images_dir)
-        shutil.copy(os.path.join(annotations_dir, file + ".txt"), valid_labels_dir)
+        _check_move_file(images_dir, file + ".jpg", valid_images_dir)
+        _check_move_file(annotations_dir, file + ".txt", valid_labels_dir)
+        if record_confidence:
+            _check_move_file(
+                annotations_dir, "confidence-" + file + ".txt", valid_labels_dir
+            )
+
 
     # Load the existing YAML file to get the names
     with open(os.path.join(base_dir, "data.yaml"), "r") as file:
@@ -95,6 +176,17 @@ def split_data(base_dir, split_ratio=0.8):
 
 
 def split_video_frames(video_path: str, output_dir: str, stride: int) -> None:
+    """
+    Split a video into frames and save them to a directory.
+
+    Args:
+        video_path: The path to the video
+        output_dir: The directory to save the frames to
+        stride: The stride to use when splitting the video into frames
+
+    Returns:
+        None
+    """
     video_paths = sv.list_files_with_extensions(
         directory=video_path, extensions=["mov", "mp4", "MOV", "MP4"]
     )
@@ -108,3 +200,50 @@ def split_video_frames(video_path: str, output_dir: str, stride: int) -> None:
                 source_path=str(video_path), stride=stride
             ):
                 sink.save_image(image=image)
+
+
+def sync_with_roboflow(workspace_id, workspace_url, project_id, batch_id, model):
+    """
+    Authenticate a user with Roboflow, download images from a Roboflow dataset, and upload annotations to Roboflow.
+    """
+    work_dir = os.path.join(os.getcwd(), workspace_url, project_id, batch_id)
+
+    roboflow.login()
+    rf = roboflow.Roboflow()
+    project = rf.workspace(workspace_url).project(project_id)
+
+    os.makedirs(os.path.join(work_dir, "images"), exist_ok=True)
+
+    records = [
+        image
+        for page in project.search_all(batch=True, batch_id=batch_id, fields=["id"])
+        for image in page
+    ]
+
+    for image in records:
+        image_url = (
+            f'https://source.roboflow.com/{workspace_id}/{image["id"]}/original.jpg'
+        )
+        urlretrieve(image_url, os.path.join(work_dir, "images", image["id"] + ".jpg"))
+
+    model.label(os.path.join(work_dir, "images"), extension=".jpg")
+
+    with open(os.path.join(work_dir, "images_labeled", "data.yaml"), "r") as f:
+        data = yaml.safe_load(f)
+        labelmap = {id: k for id, k in enumerate(data["names"])}
+
+    annotations_dir = os.path.join(work_dir, "images_labeled")
+    for subdir in ["train", "valid"]:
+        label_dir = os.path.join(annotations_dir, subdir, "labels")
+        for image_record in records:
+            annotation_path = os.path.join(label_dir, image_record["id"] + ".txt")
+            if os.path.exists(annotation_path):
+                print(
+                    project.single_upload(
+                        image_id=image_record["id"],
+                        annotation_path=annotation_path,
+                        annotation_labelmap=labelmap,
+                    )
+                )
+
+    print("Your annotations have been uploaded to Roboflow.")

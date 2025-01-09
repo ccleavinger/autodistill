@@ -1,12 +1,11 @@
-# DINOv2
+<span class="cls-button">Classification</span>
+<span class="bm-button">Base Model</span>
 
-**CLIP is not fully supported by Autodistill. Check back later for updates.**
+## What is DINOv2?
+
+This repository contains the code supporting the DINOv2 base model for use with [Autodistill](https://github.com/autodistill/autodistill).
 
 [DINOv2](https://github.com/facebookresearch/dinov2), developed by Meta Research, is a self-supervised training method for computer vision models. This library uses DINOv2 image embeddings with SVM to build a classification model.
-
-Read the full [Autodistill documentation](https://autodistill.github.io/autodistill/).
-
-Read the [DINOv2 Autodistill documentation](https://autodistill.github.io/autodistill/base_models/dinov2/).
 
 ## Installation
 
@@ -22,7 +21,7 @@ pip3 install autodistill-dinov2
 ```python
 from autodistill_dinov2 import DINOv2
 
-target_model = DINOv2()
+target_model = DINOv2(None)
 
 # train a model
 # specify the directory where your annotations (in multiclass classification folder format)
@@ -30,6 +29,11 @@ target_model = DINOv2()
 # with the structure {filename: embedding}
 target_model.train("./context_images_labeled")
 
+# get class list
+# print(target_model.ontology.classes())
+
 # run inference on the new model
 pred = target_model.predict("./context_images_labeled/train/images/dog-7.jpg")
+
+print(pred)
 ```

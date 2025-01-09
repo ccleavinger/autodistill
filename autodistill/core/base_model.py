@@ -14,6 +14,9 @@ from .ontology import Ontology
 class BaseModel(ABC):
     ontology: Ontology
 
+    def __init__(self, ontology: Ontology):
+        super().__init__()
+
     def set_ontology(self, ontology: Ontology):
         self.ontology = ontology
 
@@ -23,7 +26,10 @@ class BaseModel(ABC):
 
     @abstractmethod
     def label(
-        self, input_folder: str, extension: str = ".jpg", output_folder: str = None
+        self,
+        input_folder: str,
+        extension: str = ".jpg",
+        output_folder: str | None = None,
     ) -> sv.BaseDataset:
         if output_folder is None:
             output_folder = input_folder + "_labeled"

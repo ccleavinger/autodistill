@@ -1,8 +1,13 @@
-# ViT
+<span class="cls-button">Classification</span>
+<span class="tm-button">Target Model</span>
 
-**ViT is not fully supported by Autodistill. Check back later for updates.**
+## What is ViT?
 
 [ViT](https://huggingface.co/google/vit-base-patch16-224-in21k) is a classification model pre-trained on ImageNet-21k, developed by Google. You can train ViT classification models using Autodistill.
+
+Read the full [Autodistill documentation](https://autodistill.github.io/autodistill/).
+
+Read the [ViT Autodistill documentation](https://autodistill.github.io/autodistill/target_models/vit/).
 
 ## Installation
 

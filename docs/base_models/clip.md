@@ -1,11 +1,15 @@
-# CLIP
+<span class="cls-button">Classification</span>
+<span class="bm-button">Base Model</span>
+
+# What is CLIP?
 
 [CLIP](https://github.com/openai/CLIP), developed by OpenAI, is a computer vision model trained using pairs of images and text. You can use CLIP with autodistill for image classification.
+
+This project is licensed under an [MIT license](https://github.com/autodistill/autodistill-clip).
 
 ## Installation
 
 To use CLIP with autodistill, you need to install the following dependency:
-
 
 ```bash
 pip3 install autodistill-clip
